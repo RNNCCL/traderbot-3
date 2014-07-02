@@ -1,8 +1,8 @@
-var koa = require('koa'),
-route = require('koa-route'),
-request = require('koa-request'),
-app = module.exports = koa(),
-crypto = require('crypto'),
+//var koa = require('koa'),
+//route = require('koa-route'),
+//request = require('koa-request'),
+//app = module.exports = koa(),
+var crypto = require('crypto'),
 Bitstamp = require('bitstamp'),
 bitstamp = new Bitstamp,
 mongoose = require('mongoose'),
@@ -155,7 +155,7 @@ intrepeter._fetchBots().then( function(bots) {
 
 
 
-
+/** The below code requires koa.js dependencies
 
 //Bitstamp Public API: Ticker
 app.use(route.get('/ticker', ticker));
