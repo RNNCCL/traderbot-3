@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "start": "node --harmony --harmony_generators server.js"
+  },
+  "engines": {
+    "node": "^0.11.12"
+  }
+}
