@@ -5,60 +5,57 @@
 var crypto = require('crypto'),
 Bitstamp = require('bitstamp'),
 bitstamp = new Bitstamp,
-mongoose = require('mongoose'),
-Pusher = require('pusher-client');
+mongoose = require('mongoose');
 
-//Configuration 
-var pusherBitstampApiKey = 'de504dc5763aeef9ff52';
-//Config for Environment: Bitstamp
+// Config for Environment: Bitstamp
 var key = 'v0QzswYmIGEMS28tvlZwfMfeuco4hjb6';
 var secret = '6RSR6ZIj0bu5hJ2PfP2TGABwWkY70c99';
 var client_id = 360591; // your Bitstamp user ID
 
-//Connection to database
+// Database Connection
 mongoose.connect('mongodb://localhost/agent');
 var db = mongoose.connection;
 db.on('error', console.error.bind(console, 'connection to database error:'));
 
-// Agent Scout: responsible for collecting trade data and storing it in the agent database.
-/*
-var socket = new Pusher(pusherBitstampApiKey);
-var tradesChannel = socket.subscribe('live_trades');
 
-var environmentTradeSchema = mongoose.Schema({
-    type: String, //bitstamp
-    amount: Number, //0.18983592
-    price: Number,
-    date: { type: Date, default: Date.now }
-});
-var environmentTrade = mongoose.model('environmentTrade', environmentTradeSchema);
-
-db.once('open', function callback () {
-  console.log('successfully connected to database');
-
-  socket.bind('trade',
-    function(data) {
-      // data { price: 582.8, amount: 0.18983592, id: 5043036 }
-      console.log('data', data);
-      var environmentTradeInstance = new environmentTrade({ type: 'bitstamp', amount: data.amount, price: data.price });
-      environmentTradeInstance.save(function (err, environmentTrade) {
-        if (err) return console.error(err);
-      });
-    }
-  );
-});
-*/
+// Common Functions and Utilities
 
 
-//Agent Intrepeter
 
-var Intrepeter = function() {}
+// Namespace
+var Agent = Agent || {};
+
+// Common Functions and Utilities
+Agent.addFloat = function(a, b) {
+  return parseFloat(a) + parseFloat(b);
+}
+
+Agent.findMedian = function(values) {
+  values.sort( function(a,b) {return a - b;} );
+
+  var half = Math.floor(values.length/2);
+
+  if(values.length % 2)
+      return values[half];
+  else
+      return (values[half-1] + values[half]) / 2.0;
+
+}
+
+String.prototype.toCamel = function() {
+  return this.replace(/([-_][a-z])/g, function($1){return $1.toUpperCase().replace(/[-_]/,'');});
+};
+
+// Agent Intrepeter
+var Intrepeter = function() {
+  console.log('Intrepeter start');
+}
 
 var Bot = function(botData) {
   this.name = botData.name;
   this.usdBalance = botData.usd_balance;
   this.algorithms = botData.algorithm_ids;
-} 
+}
 
 var Algorithm = function(algorithmData) {
   this.name = algorithmData.name;
@@ -67,6 +64,152 @@ var Algorithm = function(algorithmData) {
   this.localValues = algorithmData.local_values;
   this.commands = algorithmData.commands;
   this.bot = algorithmData.bot_id;
+}
+
+// Command class
+Agent.Command = function(commandData) {
+  this.identify = function(type) {
+    var type = (type == undefined)?this.type:type;
+    switch (type) {
+      case 'VALUE_POOL':
+        return type.toLowerCase().toCamel();
+        break;
+      default:
+        console.log('Error: Command was unable to be identified.');
+        return null;
+        break;
+    }
+    this.commandData = function() {
+      return commandData;
+    }
+  }
+
+
+  this.init = function() {
+    this.type = commandData.type;
+    //finish assigning everything to object that exists in commandData
+  }
+  this.init();
+
+}
+
+// Command: valuePool 
+Agent.valuePool = function(commandData) {
+  
+  this.values = [];
+
+  // 1) Get the time interval from commandData. Should be hours integer.
+  this.timeInterval = commandData.time_interval;
+  
+  // 2) Fetch all trades in that time interval.
+  var environmentTrades = new Agent.environmentTrade();
+  // use timeInterval to set query to pass in find().
+  // in the future we made need to specify environment
+
+  var self = this;
+  environmentTrades.find().then( function(environmentTradesData) {
+
+    environmentTradesData.forEach( function(environmentTradeData) {
+      //console.log('environmentTrade', typeof(environmentTradeData));
+      //console.log('inside, self', self);
+      self.values.push(environmentTradeData.price);
+    });
+    console.log('self values', self.values);
+
+    self.valuePoolSum = self.values.reduce(Agent.addFloat, 0);
+    self.valuePoolSum = self.valuePoolSum.toFixed(2);
+    self.count = self.values.length;
+    self.medianValue = self.valuePoolSum / self.count;
+    self.values.sort();
+    self.maxHigh = self.values[self.count - 1];
+    self.maxLow = self.values[0];
+    self.valuePoolRange = (parseFloat(self.maxHigh) - parseFloat(self.maxLow)).toFixed();
+
+    self.sellThreshold = 75;
+    self.actionableHigh = (self.sellThreshold / 100) * self.valuePoolRange;
+    // add the lowest 
+    self.actionableHigh = parseFloat(self.actionableHigh) + parseFloat(self.maxLow);
+
+    self.highValuePool = [];
+    self.values.forEach( function(num) {
+      if (num >= self.actionableHigh) {
+        self.highValuePool.push(num);
+      }
+    });
+
+    self.highValuePoolSum = self.highValuePool.reduce(Agent.addFloat, 0);
+    self.highValuePoolSum = self.highValuePool.toFixed(2);
+    self.highValuePoolMedian = self.highValuePoolSum / self.highValuePool.length;
+
+    //Now do the low value pool values.
+
+    console.log('length of values', self.values.length);
+    console.log('length of high value pool', self.highValuePool.length);
+    console.log('high Value pool', self.highValuePool);
+
+    self.actionableLow = 25; // user set percentage, hard-coded for now ...
+    self.actionableLow = (self.actionableLow / 100) * self.valuePoolRange;
+    // add the lowest to value
+    self.actionableLow = parseFloat(value) + parseFloat(self.maxLow);
+
+    self.lowValuePool = [];
+    self.values.forEach( function(num) {
+      if (num < self.actionableLow) {
+        self.lowValuePool.push(num);
+      }
+    });
+    self.lowValuePoolSum = self.lowValuePool.reduce(Agent.addFloat, 0);
+    self.lowValuePoolSum = self.lowValuePool.toFixed(2);
+    self.lowValuePoolMedian = self.lowValuePoolSum / self.lowValuePool.length;
+
+/*
+    console.log('valuePoolRange', self.valuePoolRange);
+    console.log('maxHigh', self.maxHigh);
+    console.log('maxLow', self.maxLow);
+    console.log('median', self.medianValue);
+*/
+
+  }, function(error) {
+    console.log('error', error);
+  });
+}
+
+Agent.environmentTrade = function() {
+  console.log('environmentTrade');
+  this.schema = mongoose.Schema({
+      type: String,
+      amount: Number,
+      price: String,
+      date: Date 
+    });
+  this.find = function(queryParameters) {
+    var queryParameters = ((!queryParameters)?{}:queryParameters);
+    var environmentTrade = mongoose.model('environmentTrade', this.schema);
+    var query = environmentTrade.find(queryParameters).exec();
+    return query;
+  }
+}
+
+Agent.prioritizer = function(prioritizer) {
+
+ this.checkCondition = function() {
+  // will read the prioritizer condition, operator and value, and set condition to true or false.
+  console.log('checking condition ...');
+  if (prioritizer) {
+
+  } else {
+    console.log('set condition to true, because prioritizer is null');
+    this.condition = true;
+  }
+ };
+ this.checkResolution = function() {
+  // return true UNTIL condition is set to true from checkCondition. 
+  if (this.condition) {
+    return false;
+  } else {
+    return true;
+  }
+ };
 }
 
 Intrepeter.prototype._fetchBots = function() {
@@ -101,35 +244,45 @@ Intrepeter.prototype._fetchAlgorithms = function(algorithmIds) {
   return algorithms;
 }
 
+console.log('Test true');
 
 //Step 1. Start by fetching all bots.
 intrepeter = new Intrepeter;
+console.log('After Intrepeter');
 
 intrepeter._fetchBots().then( function(bots) {
+  console.log('bots', bots);
   bots.forEach( function(botData) {
     //Consider adding bot to the intrepreter 
     var bot = new Bot(botData);
+    
     console.log('bot.algorithms', bot.algorithms);
+
     //Step 2. For each bot, fetch the alogrithms for executing.
     intrepeter._fetchAlgorithms(bot.algorithms).then( function(algorithmsData) {
       //console.log('algorithmsData', algorithmsData);
       
       algorithmsData.forEach( function(algorithmData) {
-        
         //Step 3. For each algorithm execute the instructions/commands. 
         var algorithm = new Algorithm(algorithmData);
 
         algorithm.commands.forEach( function(commandData) {
-          console.log('command', commandData);
-          //intrepeter.
+          
+          var prioritizer = new Agent.prioritizer(commandData.prioritizer);
+          // do checking of object prioritizer while condition is not met.
+          do {
+            prioritizer.checkCondition();
+          } while ( prioritizer.checkResolution() );
+
+          var command = new Agent.Command(commandData);
+          var commandType = command.identify();
+          var executeCommand = new Agent[commandType](commandData);
         });
 
       });
-
     }, function(error) {
       console.log('error', error);
     });
-
   });
 });
 

@@ -27,7 +27,7 @@
           then_type: 'algorithm', //command, algorithm
           then_id: 1
         },
-        { 
+        {
           id: 1,
           type: 'WAIT',
           value: 10
